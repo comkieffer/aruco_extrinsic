@@ -1,0 +1,21 @@
+<launch>
+
+    <arg name="camera_ns" value="/endoscope/right" />
+
+    <include file="$(find decklink_video_tool)/launch/full.launch" />
+
+    <node pkg="aruco_extrinsic" type="aruco_extrinsic" name="camera_left_extrinsic" output="screen">
+
+        <param name="camera_topic" value="$(arg camera_ns)/image_raw" />
+        <param name="camera_pose_topic" value="$(arg camera_ns)/pose" />
+        <param name="detections_topic" value="$(arg camera_ns)/detections" />
+
+        <param name="aruco_dictionary_id" value="0" />
+        <param name="aruco_markers_x" value="6" />
+        <param name="aruco_markers_y" value="4" />
+        <param name="aruco_markers_length" value="0.0112" />
+        <param name="aruco_markers_separation" value="0.0025" />
+
+    </node>
+
+</launch>

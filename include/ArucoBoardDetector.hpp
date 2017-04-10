@@ -17,6 +17,8 @@
 
 #include "Exceptions.hpp"
 
+struct quaternion { double x, y, z, w; };
+
 class ArucoBoardDetector
 {
 public:
@@ -36,19 +38,31 @@ protected:
     template <class T>
     T getPrivateParam(std::string name);
 
+    quaternion rvecToQuaternion(cv::Vec3d rvec);
 private:
 
     ros::NodeHandle _node;
     ros::NodeHandle _private_node;
 
+    /// Publisher used to publish the camera pose information as a \sensor_msgs::PoseStamped message
+    ros::Publisher _camera_pose;
+
     image_transport::ImageTransport _it;
+
+    /// Subscribes to the camera images
     image_transport::CameraSubscriber _camera;
+
+    /// Publishes an image with all the detected aruco markers highlighted
+    image_transport::Publisher _detections;
 
     /// Latest image received. May be empty if no images have been received.
     sensor_msgs::Image _latest_image;
 
+    /// Parameters required for the aruco
     cv::Ptr<cv::aruco::Dictionary> _aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> _aruco_params = cv::aruco::DetectorParameters::create();
+    cv::Ptr<cv::aruco::GridBoard> _aruco_gridboard;
+    cv::Ptr<cv::aruco::Board> _aruco_board;
 
     /// Number of images received so far
     u_int _image_count = 0;

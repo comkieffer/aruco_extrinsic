@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
-<package>
+
+<package format="2">
   <name>aruco_extrinsic</name>
-  <version>0.0.0</version>
+  <version>0.0.1</version>
   <description>The aruco_extrinsic package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag --> 

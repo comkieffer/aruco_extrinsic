@@ -1,6 +1,6 @@
 <launch>
 
-    <arg name="camera_ns" value="/endoscope/right" />
+    <arg name="camera_ns" value="/endoscope/left" />
 
     <include file="$(find decklink_video_tool)/launch/full.launch" />
 

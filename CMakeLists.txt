@@ -7,22 +7,42 @@ find_package(catkin REQUIRED
         roscpp
         image_transport
         cv_bridge
+        message_generation
+        geometry_msgs
         )
 include_directories(include/ ${catkin_INCLUDE_DIRS})
 
 find_package(OpenCV 3.1.0 REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
+#
+# Messages !
+#
+
+add_message_files(FILES ArucoMarker.msg ArucoMarkers.msg)
+
+generate_messages(DEPENDENCIES std_msgs geometry_msgs)
+
+#
+# Initialise the catkin package
+#
+
 catkin_package(
     INCLUDE_DIRS include
 #   LIBRARIES aruco_extrinsic
-#   CATKIN_DEPENDS other_catkin_pkg
+    CATKIN_DEPENDS message_runtime std_msgs geometry_msgs
 #   DEPENDS system_lib
 )
+
+
+#
+# Binaries
+#
 
 add_executable(aruco_extrinsic
         src/aruco_extrinsic.cpp
         src/ArucoBoardDetector.cpp
+        src/Conversions.cpp
         )
 target_link_libraries(aruco_extrinsic
         ${catkin_LIBRARIES}

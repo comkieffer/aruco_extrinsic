@@ -8,12 +8,12 @@
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <aruco_extrinsic/ArucoMarkers.h>
 
 #include "ArucoBoardDetector.hpp"
 #include "to_string.hpp"
+#include "Conversions.hpp"
 
-#include <tf_conversions/tf_kdl.h>
-#include <opencv2/calib3d.hpp>
 
 /// Constructor
 ArucoBoardDetector::ArucoBoardDetector()
@@ -33,6 +33,12 @@ ArucoBoardDetector::ArucoBoardDetector()
     if (_private_node.getParam("detections_topic", detections_topic)) {
         ROS_INFO_STREAM("publishing detection images on " << detections_topic.c_str());
         _detections = _it.advertise(detections_topic, 1);
+    }
+
+    std::string markers_topic;
+    if (_private_node.getParam("markers_topic", markers_topic)) {
+        ROS_INFO_STREAM("Publishing detected marker poses and ids on " << markers_topic.c_str());
+        _markers = _node.advertise<aruco_extrinsic::ArucoMarkers>(markers_topic, 1);
     }
 
     std::string camera_pose_topic = getPrivateParam<std::string>("camera_pose_topic");
@@ -91,7 +97,7 @@ void ArucoBoardDetector::onImageReceived(
         return;
 
     // Use the markers to compute the pose.
-    cv::Vec3d orientation, position;
+    cv::Vec3d orientation{0, 0, 0}, position{0, 0, 0};
     auto markers_used = cv::aruco::estimatePoseBoard(
         corners, ids, _aruco_board, camera_matrix, distortion_coefficients, orientation, position
     );
@@ -99,22 +105,12 @@ void ArucoBoardDetector::onImageReceived(
     // if the board was actually detected we can build the pose message
     if (markers_used > 0) {
         ROS_DEBUG_STREAM(
-            "" << "Image #" << img->header.seq << ", #Markers: " << markers_used << ", O: ["
-               << orientation[0] << ", " << orientation[1] << ", " << orientation[2] << "]"
-               << ", P: [" << position[0] << ", " << position[1] << ", " << position[2] << "]"
+            "" << "Image #" << img->header.seq << ", #Markers: " << markers_used << ", "
+                << "P: [" << position[0] << ", " << position[1] << ", " << position[2] << "]"
+                << "O: [" << orientation[0] << ", " << orientation[1] << ", " << orientation[2] << "], "
         );
 
-        geometry_msgs::PoseStamped pose;
-        pose.pose.position.x = position[0];
-        pose.pose.position.y = position[1];
-        pose.pose.position.z = position[2];
-
-        auto quat = rvecToQuaternion(orientation);
-        pose.pose.orientation.w = quat.w;
-        pose.pose.orientation.x = quat.x;
-        pose.pose.orientation.y = quat.y;
-        pose.pose.orientation.z = quat.z;
-
+        auto pose = to_pose_stamped(img->header, position, orientation);
         _camera_pose.publish(pose);
     } else {
         ROS_WARN_STREAM("Board detection failed");
@@ -148,6 +144,27 @@ void ArucoBoardDetector::onImageReceived(
         _detections.publish(detections_img);
     }
 
+    // If the markers topic name has been set we publish the pose of all the markers
+    if (_markers) {
+        aruco_extrinsic::ArucoMarkers markers;
+        markers.header = img->header;
+
+        // Estimate the pose of the single markers
+        std::vector<cv::Vec3d> orientations, positions;
+        cv::aruco::estimatePoseSingleMarkers(
+            corners, 1.0f, camera_matrix, distortion_coefficients, orientations, positions);
+
+        for (auto marker_info : boost::combine(ids, positions, orientations)) {
+            aruco_extrinsic::ArucoMarker marker;
+            marker.id = marker_info.get<0>();
+            marker.pose = to_pose(marker_info.get<1>(), marker_info.get<2>());
+
+            markers.markers.push_back(marker);
+        }
+
+        _markers.publish(markers);
+    }
+
     // Update the count only when we're sure that we've successfully processed the image.
     _image_count += 1;
 }
@@ -168,85 +185,3 @@ const sensor_msgs::Image &ArucoBoardDetector::getLatestImage() const {
     return _latest_image;
 }
 
-
-/**
- * Convert an opencv rotation vector to a quaternion.
- *
- * @note
- *  The conversion from a rotation matrix to a quaternion was lifted from glm.
- *  see: https://github.com/g-truc/glm/blob/c8ddeea744d6ea7fc3deda06bba0d1f0d2a31f6a/glm/gtc/quaternion.inl#L626
- *
- * @param rvec The rotation vector to convert
- * @return A quaternion representing the rotation.
- */
-quaternion ArucoBoardDetector::rvecToQuaternion(cv::Vec3d rvec) {
-    cv::Mat m(3, 3, CV_64F);
-    cv::Rodrigues(rvec, m);
-
-    quaternion quat;
-
-    double fourXSquaredMinus1 = m.at<double>(0, 0) - m.at<double>(1, 1) - m.at<double>(2, 2);
-    double fourYSquaredMinus1 = m.at<double>(1, 1) - m.at<double>(0, 0) - m.at<double>(2, 2);
-    double fourZSquaredMinus1 = m.at<double>(2, 2) - m.at<double>(0, 0) - m.at<double>(1, 1);
-    double fourWSquaredMinus1 = m.at<double>(0, 0) - m.at<double>(1, 1) - m.at<double>(2, 2);
-
-    // To reduce numerical errors we need to find the largest component
-    int biggestIndex = 0;
-    double fourBiggestSquaredMinus1 = fourWSquaredMinus1;
-    if(fourXSquaredMinus1 > fourBiggestSquaredMinus1)
-    {
-        fourBiggestSquaredMinus1 = fourXSquaredMinus1;
-        biggestIndex = 1;
-    }
-
-    if(fourYSquaredMinus1 > fourBiggestSquaredMinus1)
-    {
-        fourBiggestSquaredMinus1 = fourYSquaredMinus1;
-        biggestIndex = 2;
-    }
-
-    if(fourZSquaredMinus1 > fourBiggestSquaredMinus1)
-    {
-        fourBiggestSquaredMinus1 = fourZSquaredMinus1;
-        biggestIndex = 3;
-    }
-
-    double biggestVal = sqrt(fourBiggestSquaredMinus1 + 1.0) * 0.5;
-    double mult = 0.25 / biggestVal;
-
-    switch(biggestIndex)
-    {
-        case 0:
-        quat.w = biggestVal;
-        quat.x = (m.at<double>(1, 2) - m.at<double>(2, 1)) * mult;
-        quat.y = (m.at<double>(2, 0) - m.at<double>(0, 2)) * mult;
-        quat.z = (m.at<double>(0, 1) - m.at<double>(1, 0)) * mult;
-        break;
-
-    case 1:
-        quat.w = (m.at<double>(1, 2) - m.at<double>(2, 1)) * mult;
-        quat.x = biggestVal;
-        quat.y = (m.at<double>(0, 1) + m.at<double>(1, 0)) * mult;
-        quat.z = (m.at<double>(2, 0) + m.at<double>(0, 2)) * mult;
-        break;
-
-    case 2:
-        quat.w = (m.at<double>(2, 0) - m.at<double>(0, 2)) * mult;
-        quat.x = (m.at<double>(0, 1) + m.at<double>(1, 0)) * mult;
-        quat.y = biggestVal;
-        quat.z = (m.at<double>(1, 2) + m.at<double>(2, 1)) * mult;
-        break;
-
-    case 3:
-        quat.w = (m.at<double>(0, 1) - m.at<double>(1, 0)) * mult;
-        quat.x = (m.at<double>(2, 0) + m.at<double>(0, 2)) * mult;
-        quat.y = (m.at<double>(1, 2) + m.at<double>(2, 1)) * mult;
-        quat.z = biggestVal;
-        break;
-
-    default:
-        assert(false);
-        break;
-    }
-    return quat;
-}
